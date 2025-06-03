@@ -3,6 +3,9 @@ import streamlit as st
 import pandas as pd
 from analyze_vscodetest import clean_and_enrich
 
+# Set the page layout to wide
+st.set_page_config(layout="wide")
+
 st.title("SFDC Data Visualization Tool")
 
 uploaded_file = st.file_uploader("Upload your Excel file", type=["xlsx"])
@@ -16,20 +19,22 @@ if uploaded_file:
 
     # --- Visuals Section ---
 
-    # Bar chart of frequency of Concise Reasons
-    st.subheader("Frequency of Concise Reasons")
-    reason_counts = df['Concise Reason'].value_counts()
+    # Bar chart of frequency of individual Concise Reasons
+    st.subheader("Frequency of Individual Reasons")
+    all_reasons = df['Concise Reason'].str.split(',').explode().str.strip()
+    reason_counts = all_reasons.value_counts()
+
+    # Convert to DataFrame and set categorical index to preserve order
     reason_counts_df = reason_counts.reset_index()
-    reason_counts_df.columns = ['Concise Reason', 'Count']
-    reason_counts_df['Concise Reason'] = pd.Categorical(
-        reason_counts_df['Concise Reason'],
-        categories=reason_counts_df['Concise Reason'],
+    reason_counts_df.columns = ['Reason', 'Count']
+    reason_counts_df['Reason'] = pd.Categorical(
+        reason_counts_df['Reason'],
+        categories=reason_counts_df['Reason'],
         ordered=True
     )
     reason_counts_df = reason_counts_df.sort_values('Count', ascending=False)
-    st.bar_chart(
-        data=reason_counts_df.set_index('Concise Reason')
-    )
+
+    st.bar_chart(reason_counts_df.set_index('Reason'))
    
 
     
