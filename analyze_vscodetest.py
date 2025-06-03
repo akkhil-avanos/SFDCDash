@@ -49,10 +49,15 @@ def clean_and_enrich(df):
     # Clean the Case Reason column to remove any prefix like "GRPRO", numbers, and dashes
     df['Case Reason'] = df['Case Reason'].str.replace(r'^.*?-\s*', '', regex=True)
 
+    # Standardize Cosmetic/Physical Damage case reason
+    df['Case Reason'] = df['Case Reason'].str.replace(
+        r'^Cosmetic/Physical Damage.*$', 'Cosmetic/Physical Damage', regex=True
+    )
+
     # Concise Reason
     df['Concise Reason'] = df.apply(
        lambda row: categorize_description_and_case(row['Description'], row['Case Reason']),
-       # lambda row: categorize_with_openai(row['Description'], row['Case Reason'], reason_keywords), 
+       
         axis=1
     )
     return df
