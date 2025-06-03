@@ -3,7 +3,7 @@ import streamlit as st
 import pandas as pd
 from analyze_vscodetest import clean_and_enrich
 
-st.title("Case Reason Categorizer")
+st.title("SFDC Data Visualization Tool")
 
 uploaded_file = st.file_uploader("Upload your Excel file", type=["xlsx"])
 
@@ -29,6 +29,25 @@ if uploaded_file:
     reason_counts_df = reason_counts_df.sort_values('Count', ascending=False)
     st.bar_chart(
         data=reason_counts_df.set_index('Concise Reason')
+    )
+   
+
+    
+
+    # --- Survival Curve Section ---
+    st.subheader("Empirical Survival Curve: Time To Failure (TTF)")
+
+    # Prepare survival data
+    ttf = df['TTF'].dropna().sort_values()
+    survival_prob = 1 - (ttf.rank(method="first") / len(ttf))
+
+    survival_df = pd.DataFrame({
+        "TTF": ttf.values,
+        "Survival Probability": survival_prob.values
+    })
+
+    st.line_chart(
+        data=survival_df.set_index("TTF")
     )
 
     # Widgets for average repair price and average TTF
