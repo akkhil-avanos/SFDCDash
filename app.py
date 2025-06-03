@@ -1,76 +1,94 @@
-import io
-import streamlit as st
 import pandas as pd
-from analyze_vscodetest import clean_and_enrich
+from datetime import datetime, timedelta
+from reason_keywords import reason_keywords
+#import openai
+import os
+#openai.api_key = "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"
 
-# Set the page layout to wide
-st.set_page_config(layout="wide")
+def extract_manufacture_date(serial):
+    try:
+        code = serial[2:7]
+        year = 2000 + int(code[:2])
+        day_of_year = int(code[2:])
+        return datetime(year, 1, 1) + timedelta(days=day_of_year - 1)
+    except:
+        return pd.NaT
 
-st.title("SFDC Data Visualization Tool")
+def format_reason(reason):
+    # Remove any leading numbers, dashes, and whitespace
+    return pd.Series(reason).str.replace(r'^[\s\-0-9]+', '', regex=True).str.strip().values[0]
 
-uploaded_file = st.file_uploader("Upload your Excel file", type=["xlsx"])
+def categorize_description_and_case(description, case_reason):
+    reasons_found = set()
+    desc_lower = str(description).lower()
+    words = set(desc_lower.replace(",", " ").replace(".", " ").replace(";", " ").split())
+    # Add the cleaned case reason
+    if pd.notna(case_reason):
+        reasons_found.add(format_reason(str(case_reason).strip()))
+    for reason, keywords in reason_keywords.items():
+        if reason == case_reason:
+            continue
+        for kw in keywords:
+            if " " in kw:
+                if kw in desc_lower:
+                    reasons_found.add(format_reason(reason))
+                    break
+            else:
+                if kw in words:
+                    reasons_found.add(format_reason(reason))
+                    break
+    return ", ".join(sorted(reasons_found)) if reasons_found else "Other"
 
-if uploaded_file:
-    df = pd.read_excel(uploaded_file)
-    df = clean_and_enrich(df)
+def clean_and_enrich(df):
+    # Manufacture Date extraction
+    df['Manufacture Date'] = df['Asset/Serial No'].apply(extract_manufacture_date)
+    df['Opened Date'] = pd.to_datetime(df['Opened Date'])
+    df['Manufacture Date'] = pd.to_datetime(df['Manufacture Date'])
+    df['TTF'] = (df['Opened Date'] - df['Manufacture Date']).dt.days
 
-    st.write("Preview of processed data:")
-    st.dataframe(df.head())
+    # Clean the Case Reason column to remove any prefix like "GRPRO", numbers, and dashes
+    df['Case Reason'] = df['Case Reason'].str.replace(r'^.*?-\s*', '', regex=True)
 
-    # --- Visuals Section ---
-
-    # Bar chart of frequency of individual Concise Reasons
-    st.subheader("Frequency of Individual Reasons")
-    all_reasons = df['Concise Reason'].str.split(',').explode().str.strip()
-    reason_counts = all_reasons.value_counts()
-
-    # Convert to DataFrame and set categorical index to preserve order
-    reason_counts_df = reason_counts.reset_index()
-    reason_counts_df.columns = ['Reason', 'Count']
-    reason_counts_df['Reason'] = pd.Categorical(
-        reason_counts_df['Reason'],
-        categories=reason_counts_df['Reason'],
-        ordered=True
+    # Standardize Cosmetic/Physical Damage case reason
+    df['Case Reason'] = df['Case Reason'].str.replace(
+        r'^Cosmetic/Physical Damage.*$', 'Cosmetic/Physical Damage', regex=True
     )
-    reason_counts_df = reason_counts_df.sort_values('Count', ascending=False)
 
-    st.bar_chart(reason_counts_df.set_index('Reason'))
-   
+    # Concise Reason
+    df['Concise Reason'] = df.apply(
+       lambda row: categorize_description_and_case(row['Description'], row['Case Reason']),
+       
+        axis=1
+    )
+    return df
 
-    
+def categorize_with_openai(description, case_reason, reason_keywords):
+    import openai
+    client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))  # or use your key directly
 
-    # --- Survival Curve Section ---
-    st.subheader("Empirical Survival Curve: Time To Failure (TTF)")
-
-    # Prepare survival data
-    ttf = df['TTF'].dropna().sort_values()
-    survival_prob = 1 - (ttf.rank(method="first") / len(ttf))
-
-    survival_df = pd.DataFrame({
-        "TTF": ttf.values,
-        "Survival Probability": survival_prob.values
-    })
-
-    st.line_chart(
-        data=survival_df.set_index("TTF")
+    prompt = (
+        "Given the following case description and a list of possible reasons, "
+        "return all reasons (comma-separated, no duplicates) that apply to the description. "
+        "Only use reasons from the list. "
+        f"Description: \"{description}\"\n"
+        f"Possible reasons: {', '.join(reason_keywords.keys())}\n"
+        f"Case Reason: \"{case_reason if pd.notna(case_reason) else ''}\"\n"
+        "Output:"
     )
 
-    # Widgets for average repair price and average TTF
-    avg_repair_price = df['Repair Price (converted)'].mean()
-    avg_ttf = df['TTF'].mean()
-
-    col1, col2 = st.columns(2)
-    col1.metric("Average Repair Price", f"${avg_repair_price:,.2f}")
-    col2.metric("Average TTF (days)", f"{avg_ttf:.1f}")
-
-    # --- Download Section ---
-    output = io.BytesIO()
-    df.to_excel(output, index=False, engine='openpyxl')
-    output.seek(0)
-
-    st.download_button(
-        label="Download Excel with Reasons",
-        data=output,
-        file_name="output_with_reasons.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    response = client.chat.completions.create(
+        model="gpt-3.5-turbo",
+        messages=[{"role": "user", "content": prompt}],
+        max_tokens=100,
+        temperature=0
     )
+    concise_reasons = response.choices[0].message.content.strip()
+    unique_reasons = list(dict.fromkeys([r.strip() for r in concise_reasons.split(",") if r.strip()]))
+    return ", ".join(unique_reasons)
+
+# df = pd.read_excel('vscodetest2.xlsx')
+# df = clean_and_enrich(df)
+# df.to_excel('vscodetest2_with_reasons.xlsx', index=False)
+
+
+
