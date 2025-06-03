@@ -14,7 +14,7 @@ reason_keywords = {
     "Pump Performance Error": [
         "pump performance error", "pump error", "performance error", "pump not performing", "pump underperforming"
     ],
-    "Cosmetic/Physical Damage (cracks, scratches, chips, dents, etc)": [
+    "Cosmetic/Physical Damage": [
         "crack", "scratched", "chip", "dent", "cosmetic damage", "physical damage", "broken case", "chipped", "scuffed", "discolor", "faded", "blemish", "mark", "paint", "peel", "worn", "abrasion", "surface damage", "damaged exterior", "external damage"
     ],
     "Broken Fluidics Panel": [
