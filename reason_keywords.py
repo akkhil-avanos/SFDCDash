@@ -97,5 +97,8 @@ reason_keywords = {
     ],
     "Hose Stuck in Control Unit": [
         "hose stuck in control unit", "hose stuck", "hose jammed", "hose not removable", "hose cannot be removed"
+    ],
+    "Broken Front Connector": [
+        "broken front connector", "front connector broken", "front connector issue", "front connector not working"
     ]
 }
