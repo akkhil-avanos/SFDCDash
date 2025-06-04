@@ -4,30 +4,7 @@ import pandas as pd
 import altair as alt
 import os
 from analyze_vscodetest import clean_and_enrich, filter_by_product_type
-
-# Add password protection
-def check_password():
-    """Returns `True` if the user had the correct password."""
-
-    def password_entered():
-        """Checks whether a password entered by the user is correct."""
-        if st.session_state["password"] == st.secrets["password"]:
-            st.session_state["password_correct"] = True
-            del st.session_state["password"]  # Remove password from session state
-        else:
-            st.session_state["password_correct"] = False
-
-    if "password_correct" not in st.session_state:
-        # First run, show input for password
-        st.text_input(
-            "Please enter the password", 
-            type="password", 
-            on_change=password_entered, 
-            key="password"
-        )
-        return False
-    
-    return st.session_state["password_correct"]
+from auth import check_password
 
 # Show content only if password is correct
 if check_password():
@@ -223,7 +200,41 @@ if check_password():
             col1.metric("Average Repair Price", f"${avg_repair_price:,.2f}")
         col2.metric("Average TTF (days)", f"{avg_ttf:.1f}")
 
-       
+        # --- Histogram of Concise Reason Frequency by Time ---
+        st.subheader("Histogram of Concise Reason Frequency by Time")
+
+        # Get unique reasons for dropdown
+        unique_reasons = sorted(df['Concise Reason'].str.split(',').explode().str.strip().unique())
+        selected_reason = st.selectbox(
+            "Select Reason to analyze:",
+            unique_reasons
+        )
+
+        # Add toggle for year/month view
+        time_granularity = st.selectbox(
+            "Select time granularity",
+            ("Year", "Month"),
+            key="reason_time_granularity"  # unique key to avoid conflict
+        )
+
+        # Filter for selected reason
+        reason_mask = df['Concise Reason'].str.contains(selected_reason, na=False)
+        reason_df = df[reason_mask].copy()
+
+        if time_granularity == "Year":
+            # Yearly view
+            year_reason_counts = reason_df.groupby(
+                pd.to_datetime(reason_df['Opened Date']).dt.year
+            ).size().sort_index()
+            
+            st.bar_chart(year_reason_counts)
+            
+        else:
+            # Monthly view
+            reason_df['Month'] = pd.to_datetime(reason_df['Opened Date']).dt.strftime('%Y-%m')
+            month_reason_counts = reason_df.groupby('Month').size().sort_index()
+            
+            st.bar_chart(month_reason_counts)
 
         # --- Download Section ---
         output = io.BytesIO()
@@ -236,5 +247,3 @@ if check_password():
             file_name="output_with_reasons.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
-else:
-    st.stop()  # Do not continue if password is incorrect
