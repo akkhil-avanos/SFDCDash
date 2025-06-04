@@ -1,9 +1,12 @@
-import openai
+from openai import OpenAI
 import streamlit as st
 
 def get_openai_response(question, df):
     """Get OpenAI's analysis of the data based on user question"""
     try:
+        # Initialize OpenAI client
+        client = OpenAI(api_key=st.secrets['OPENAI_API_KEY'])
+        
         df_info = df.describe().to_string()
         df_sample = df.head().to_string()
         
@@ -18,8 +21,8 @@ def get_openai_response(question, df):
         
         Please analyze the data and answer the question."""
 
-        response = openai.ChatCompletion.create(
-            model="gpt-3.5-turbo",  # Using cheaper model for testing
+        response = client.chat.completions.create(
+            model="gpt-3.5-turbo",
             messages=[{"role": "user", "content": prompt}],
             max_tokens=500
         )
