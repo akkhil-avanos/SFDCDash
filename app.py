@@ -5,6 +5,8 @@ import altair as alt
 import os
 from analyze_vscodetest import clean_and_enrich, filter_by_product_type
 from auth import check_password
+import openai
+from chat_analysis import get_openai_response
 
 # Show content only if password is correct
 if check_password():
@@ -34,10 +36,16 @@ if check_password():
             df = pd.read_excel(uploaded_file)
             st.success("Successfully loaded uploaded dataset")
 
+
+
+
+
+    #-----Filters---------
+
     if df is not None:
         total_cases = len(df)  # Get total before filtering
         df = clean_and_enrich(df)
-
+        
         # Sidebar Filters Section
         st.sidebar.subheader("Filters")
         
@@ -98,6 +106,11 @@ if check_password():
         st.write("Preview of processed data:")
         st.dataframe(df.head())
 
+
+
+
+
+
         # --- Visuals Section ---
 
         # Bar chart of frequency of individual Concise Reasons
@@ -120,7 +133,53 @@ if check_password():
 
         
 
+
+        # --- Histogram of Concise Reason Frequency by Time ---
+
+        st.subheader("Histogram of Concise Reason Frequency by Time")
+
+        # Get unique reasons for dropdown
+        unique_reasons = sorted(df['Concise Reason'].str.split(',').explode().str.strip().unique())
+        selected_reason = st.selectbox(
+            "Select Reason to analyze:",
+            unique_reasons
+        )
+
+        # Add toggle for year/month view
+        time_granularity = st.selectbox(
+            "Select time granularity",
+            ("Month", "Year"),
+            key="reason_time_granularity"  # unique key to avoid conflict
+        )
+
+        # Filter for selected reason
+        reason_mask = df['Concise Reason'].str.contains(selected_reason, na=False)
+        reason_df = df[reason_mask].copy()
+
+        if time_granularity == "Month":
+            # Monthly view
+            reason_df['Month'] = pd.to_datetime(reason_df['Opened Date']).dt.strftime('%Y-%m')
+            month_reason_counts = reason_df.groupby('Month').size().sort_index()
+            
+            st.bar_chart(month_reason_counts)
+
+        else:
+            # Yearly view
+            year_reason_counts = reason_df.groupby(
+                pd.to_datetime(reason_df['Opened Date']).dt.year
+            ).size().sort_index()
+            
+            st.bar_chart(year_reason_counts)
+            
+        
+
+
+
+
+
+
         # --- Survival Curve Section ---
+
         st.subheader("Empirical Survival Curve: Time To Failure (TTF) in Years")
 
         # Prepare survival data in years
@@ -137,7 +196,13 @@ if check_password():
         )
 
 
+
+
+
+
+
         # --- Histogram of Failures by Manufacturing Year ---
+
         st.subheader("Histogram of Failures by Manufacturing Date")
 
         # Add toggle for year/month view
@@ -156,7 +221,12 @@ if check_password():
             month_counts = df['Manufacture Month'].value_counts().sort_index()
             st.bar_chart(month_counts)
 
+
+
+
+
         # --- Histogram of Failure Frequency per Asset/Serial Number ---
+
         st.subheader("Histogram of Failure Frequency per Asset/Serial Number")
 
         # Count failures per asset/serial number
@@ -191,6 +261,11 @@ if check_password():
         st.write(f"Asset/Serial Numbers for products with {selected_failures} failures:")
         st.write(matching_assets.tolist())
 
+
+
+
+
+
         # Widgets for average repair price and average TTF
         avg_ttf = df['TTF'].mean()
 
@@ -200,41 +275,32 @@ if check_password():
             col1.metric("Average Repair Price", f"${avg_repair_price:,.2f}")
         col2.metric("Average TTF (days)", f"{avg_ttf:.1f}")
 
-        # --- Histogram of Concise Reason Frequency by Time ---
-        st.subheader("Histogram of Concise Reason Frequency by Time")
 
-        # Get unique reasons for dropdown
-        unique_reasons = sorted(df['Concise Reason'].str.split(',').explode().str.strip().unique())
-        selected_reason = st.selectbox(
-            "Select Reason to analyze:",
-            unique_reasons
-        )
 
-        # Add toggle for year/month view
-        time_granularity = st.selectbox(
-            "Select time granularity",
-            ("Year", "Month"),
-            key="reason_time_granularity"  # unique key to avoid conflict
-        )
 
-        # Filter for selected reason
-        reason_mask = df['Concise Reason'].str.contains(selected_reason, na=False)
-        reason_df = df[reason_mask].copy()
 
-        if time_granularity == "Year":
-            # Yearly view
-            year_reason_counts = reason_df.groupby(
-                pd.to_datetime(reason_df['Opened Date']).dt.year
-            ).size().sort_index()
+
+
+        # --- OpenAI Analysis Section ---
+        if df is not None:
+            st.subheader("Ask about the Data")
+            user_question = st.text_input("What would you like to know about the data?")
             
-            st.bar_chart(year_reason_counts)
-            
-        else:
-            # Monthly view
-            reason_df['Month'] = pd.to_datetime(reason_df['Opened Date']).dt.strftime('%Y-%m')
-            month_reason_counts = reason_df.groupby('Month').size().sort_index()
-            
-            st.bar_chart(month_reason_counts)
+            if user_question:
+                if 'OPENAI_API_KEY' in st.secrets:
+                    openai.api_key = st.secrets['OPENAI_API_KEY']
+                    with st.spinner('Analyzing data...'):
+                        response = get_openai_response(user_question, df)
+                        st.write("Analysis:", response)
+                else:
+                    st.error("OpenAI API key not found in secrets")
+
+            st.divider()  # Add visual separation
+
+
+
+
+
 
         # --- Download Section ---
         output = io.BytesIO()
