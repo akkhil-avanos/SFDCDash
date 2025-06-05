@@ -97,9 +97,21 @@ def filter_by_product_type(df, filter_option):
         return df[~df['Product Code'].astype(str).str.contains("RN", case=False, na=False)]
     return df
 
-# df = pd.read_excel('vscodetest2.xlsx')
-# df = clean_and_enrich(df)
-# df.to_excel('vscodetest2_with_reasons.xlsx', index=False)
+def get_first_failure_survival_data(df):
+    """Calculate survival curve data using only first failures"""
+    # Group by Asset/Serial No and get first failure for each
+    first_failures = df.groupby('Asset/Serial No').agg({
+        'TTF': 'first'  # Get first TTF for each asset
+    }).reset_index()
+    
+    # Convert to years and prepare survival data
+    ttf_years = first_failures['TTF'].dropna().sort_values() / 365
+   # survival_prob = 1 - (ttf_years.rank(method="first") / len(ttf_years))
+    survival_prob =  (ttf_years.rank(method="first") / len(ttf_years))
+    return pd.DataFrame({
+        "Years": ttf_years.values,
+        "Probability": survival_prob.values
+    })
 
 
 
