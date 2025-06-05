@@ -3,7 +3,7 @@ import streamlit as st
 import pandas as pd
 import altair as alt
 import os
-from analyze_vscodetest import clean_and_enrich, filter_by_product_type
+from analyze_vscodetest import clean_and_enrich, filter_by_product_type, get_first_failure_survival_data
 from auth import check_password
 import openai
 from chat_analysis import get_openai_response
@@ -136,7 +136,7 @@ if check_password():
 
         # --- Histogram of Concise Reason Frequency by Time ---
 
-        st.subheader("Histogram of Concise Reason Frequency by Time")
+        st.subheader("Concise Reason Frequency by Time")
 
         # Get unique reasons for dropdown
         unique_reasons = sorted(df['Concise Reason'].str.split(',').explode().str.strip().unique())
@@ -180,21 +180,76 @@ if check_password():
 
         # --- Survival Curve Section ---
 
-        st.subheader("Empirical Survival Curve: Time To Failure (TTF) in Years")
-
-        # Prepare survival data in years
-        ttf_years = df['TTF'].dropna().sort_values() / 365
-        survival_prob = 1 - (ttf_years.rank(method="first") / len(ttf_years))
-
-        survival_df = pd.DataFrame({
-            "Years": ttf_years.values,
-            "Survival Probability": survival_prob.values
-        })
+        st.subheader("First Failure Survival Curve")
+        
+        # Get survival data using only first failures
+        survival_df = get_first_failure_survival_data(df)
 
         st.line_chart(
             data=survival_df.set_index("Years")
         )
 
+        # Add explanation
+        st.caption(
+            "Given that a product has failed, this curve shows the probability that the product is at least this old (in years)"
+        )
+
+        # --- Time Until First Failure Section ---
+        st.subheader("Time Until First Failure Analysis")
+
+        # Group by Asset/Serial No and get first failure for each
+        first_failures = df.groupby('Asset/Serial No').agg({
+            'TTF': 'first',  # Get first TTF for each asset
+            'Manufacture Date': 'first'  # Get manufacture date
+        }).reset_index()
+
+        # Convert TTF to years for consistency with survival curve
+        first_failures['TTF_Years'] = first_failures['TTF'].dropna() / 365
+
+        # Create histogram of first failures
+        st.write("Distribution of Time Until First Failure (Years)")
+        
+        # Create bins for the histogram
+        max_ttf = first_failures['TTF_Years'].max()
+        bin_size = 0.5  # 6-month bins
+        bins = range(0, int(max_ttf) + 2, 1)  # +2 to ensure last bin is included
+        
+        # Calculate histogram data
+        hist_data = pd.cut(first_failures['TTF_Years'], 
+                          bins=bins, 
+                          labels=[f"{i}-{i+1}" for i in range(len(bins)-1)])
+        hist_counts = hist_data.value_counts().sort_index()
+        
+        # Plot histogram
+        st.bar_chart(hist_counts)
+
+        # Calculate time between failures
+        def get_time_between_failures(group):
+            # Sort by TTF
+            sorted_ttf = sorted(group['TTF'].dropna())
+            # Calculate differences between consecutive failures
+            return [sorted_ttf[i+1] - sorted_ttf[i] for i in range(len(sorted_ttf)-1)]
+
+        # Get time between failures for assets with multiple failures
+        time_between_failures = []
+        for name, group in df.groupby('Asset/Serial No'):
+            if len(group) > 1:  # Only consider assets with multiple failures
+                time_between_failures.extend(get_time_between_failures(group))
+
+        # Convert to years for consistency
+        time_between_failures_years = [t/365 for t in time_between_failures]
+        avg_time_between_failures = sum(time_between_failures_years)/len(time_between_failures_years) if time_between_failures_years else 0
+
+        # Update columns to include new metric
+        col1, col2, col3, col4 = st.columns(4)
+        col1.metric("Median Time to First Failure (Years)", 
+                   f"{first_failures['TTF_Years'].median():.1f}")
+        col2.metric("Average Time to First Failure (Years)", 
+                   f"{first_failures['TTF_Years'].mean():.1f}")
+        col3.metric("Number of First Failures", 
+                   f"{len(first_failures.dropna())}")
+        col4.metric("Average Time Between Failures (Years)", 
+                   f"{avg_time_between_failures:.1f}")
 
 
 
@@ -203,7 +258,7 @@ if check_password():
 
         # --- Histogram of Failures by Manufacturing Year ---
 
-        st.subheader("Histogram of Failures by Manufacturing Date")
+        st.subheader("Failure Frequency by Manufacturing Date")
 
         # Add toggle for year/month view
         date_granularity = st.selectbox(
@@ -227,7 +282,7 @@ if check_password():
 
         # --- Histogram of Failure Frequency per Asset/Serial Number ---
 
-        st.subheader("Histogram of Failure Frequency per Asset/Serial Number")
+        st.subheader("Failure Frequency per Asset/Serial Number")
 
         # Count failures per asset/serial number
         failure_counts = df['Asset/Serial No'].value_counts()
@@ -273,7 +328,7 @@ if check_password():
         if 'Repair Price (converted)' in df.columns:
             avg_repair_price = df['Repair Price (converted)'].mean()
             col1.metric("Average Repair Price", f"${avg_repair_price:,.2f}")
-        col2.metric("Average TTF (days)", f"{avg_ttf:.1f}")
+      
 
 
 
@@ -313,3 +368,4 @@ if check_password():
             file_name="output_with_reasons.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
+
